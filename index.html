@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live LED Marquee</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        /* Marquee Animation */
+        @keyframes scroll-left {
+            0% {
+                transform: translateX(100vw);
+            }
+            100% {
+                transform: translateX(-100%);
+            }
+        }
+
+        .marquee-container {
+            overflow: hidden;
+            white-space: nowrap;
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+        }
+
+        .marquee-text {
+            display: inline-block;
+            font-weight: 900;
+            font-size: 25vh; /* Responsive font size based on screen height */
+            line-height: 1;
+            padding: 0 10vw;
+            /* The animation duration is set dynamically via Javascript */
+            animation: scroll-left linear infinite;
+            will-change: transform;
+            text-shadow: 0 0 20px currentColor; /* Glow effect */
+        }
+    </style>
+</head>
+<body class="text-gray-800 antialiased min-h-screen flex flex-col items-center justify-center">
+
+    <!-- Loading State -->
+    <div id="loading" class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white bg-opacity-90">
+        <div class="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p class="text-lg font-semibold text-gray-600">Connecting to real-time sync...</p>
+    </div>
+
+    <!-- Control Panel -->
+    <div id="control-panel" class="hidden w-full max-w-md p-6 bg-white rounded-2xl shadow-xl m-4">
+        <div class="mb-8 text-center">
+            <h1 class="text-2xl font-bold text-gray-900">LED Marquee Controller</h1>
+            <p class="text-sm text-gray-500 mt-1">Updates instantly across all screens</p>
+        </div>
+
+        <div class="space-y-5">
+            <!-- Message Input -->
+            <div>
+                <label for="msg-input" class="block text-sm font-semibold text-gray-700 mb-1">Message</label>
+                <textarea id="msg-input" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition resize-none" placeholder="Enter your text here..."></textarea>
+            </div>
+
+            <!-- Color Picker -->
+            <div>
+                <label for="color-input" class="block text-sm font-semibold text-gray-700 mb-1">Text Color</label>
+                <div class="flex items-center space-x-3">
+                    <input type="color" id="color-input" value="#ff0000" class="w-12 h-12 p-1 border-0 rounded cursor-pointer bg-transparent">
+                    <span id="color-hex" class="text-gray-600 font-mono text-sm uppercase">#FF0000</span>
+                </div>
+            </div>
+
+            <!-- Speed Slider -->
+            <div>
+                <label for="speed-input" class="block text-sm font-semibold text-gray-700 mb-1">Scroll Speed</label>
+                <input type="range" id="speed-input" min="1" max="20" value="10" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                <div class="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>Slow</span>
+                    <span>Fast</span>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="pt-4 space-y-3 border-t border-gray-100">
+                <button id="update-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-xl shadow-md transition transform active:scale-95 flex justify-center items-center">
+                    Push to Screen
+                </button>
+                <button id="fullscreen-btn" class="w-full bg-gray-800 hover:bg-gray-900 text-white font-semibold py-3 px-4 rounded-xl shadow-md transition transform active:scale-95 flex justify-center items-center space-x-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H6.414l2.293 2.293a1 1 0 11-1.414 1.414L5 6.414V8a1 1 0 01-2 0V4zm9 1a1 1 0 010-2h4a1 1 0 011 1v4a1 1 0 01-2 0V6.414l-2.293 2.293a1 1 0 11-1.414-1.414L13.586 5H12zm-9 7a1 1 0 012 0v1.586l2.293-2.293a1 1 0 111.414 1.414L6.414 15H8a1 1 0 010 2H4a1 1 0 01-1-1v-4zm13-1a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 010-2h1.586l-2.293-2.293a1 1 0 111.414-1.414L15 13.586V12a1 1 0 011-1z" clip-rule="evenodd" />
+                    </svg>
+                    <span>Enter Display Mode</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Display Mode (Fullscreen) -->
+    <div id="display-mode" class="hidden fixed inset-0 z-[100] bg-black cursor-pointer">
+        <div class="marquee-container" id="marquee-container">
+            <div id="marquee-text" class="marquee-text">WELCOME</div>
+        </div>
+        <div class="absolute bottom-4 right-4 text-white/30 text-xs font-medium tracking-wide">
+            Tap anywhere to exit display mode
+        </div>
+    </div>
+
+    <!-- Firebase Integration -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global configuration variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-marquee-app';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // UI Elements
+        const loadingEl = document.getElementById('loading');
+        const controlPanelEl = document.getElementById('control-panel');
+        const displayModeEl = document.getElementById('display-mode');
+        const marqueeTextEl = document.getElementById('marquee-text');
+        
+        // Input Elements
+        const msgInput = document.getElementById('msg-input');
+        const colorInput = document.getElementById('color-input');
+        const colorHex = document.getElementById('color-hex');
+        const speedInput = document.getElementById('speed-input');
+        const updateBtn = document.getElementById('update-btn');
+        const fullscreenBtn = document.getElementById('fullscreen-btn');
+
+        // Firestore Path (Rule 1 compliance)
+        // Storing in a public shared document so all devices see the same marquee
+        const marqueeDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'marquee', 'settings');
+
+        // Main Initialization Function
+        async function init() {
+            try {
+                // Enforce Rule 3: Auth before queries
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                // Authentication successful, start listening to state
+                setupRealtimeSync();
+
+                // Show UI
+                loadingEl.classList.add('hidden');
+                controlPanelEl.classList.remove('hidden');
+
+            } catch (error) {
+                console.error("Firebase Authentication Error:", error);
+                loadingEl.innerHTML = `<p class="text-red-500 font-bold p-4 text-center">Error connecting to sync server.<br>Please try reloading.</p>`;
+            }
+        }
+
+        // Real-time listener for the marquee document
+        function setupRealtimeSync() {
+            onSnapshot(marqueeDocRef, (snapshot) => {
+                if (snapshot.exists()) {
+                    const data = snapshot.data();
+                    
+                    // Update the Marquee Screen
+                    updateMarqueeUI(data.message, data.color, data.speed);
+
+                    // Update the Control Panel (if someone else pushed a change)
+                    // Avoid overriding if user is actively typing, but for simplicity we'll update it
+                    msgInput.value = data.message || "";
+                    colorInput.value = data.color || "#ff0000";
+                    colorHex.textContent = (data.color || "#ff0000").toUpperCase();
+                    speedInput.value = data.speed || 10;
+                } else {
+                    // Set default data if document doesn't exist yet
+                    pushUpdates("HELLO WORLD!", "#00ff00", 10);
+                }
+            }, (error) => {
+                console.error("Firestore Listen Error:", error);
+            });
+        }
+
+        // Update local DOM for the scrolling text
+        function updateMarqueeUI(message, color, speed) {
+            marqueeTextEl.textContent = message || " ";
+            marqueeTextEl.style.color = color || "#ffffff";
+            
+            // Map speed slider (1 to 20) to animation duration (e.g., 30s down to 3s)
+            // Lower duration = faster speed
+            // Formula: duration = 30 - ((speed - 1) * (27 / 19))
+            // To make it simple: reverse it. 1 = 25s, 20 = 2s.
+            const minDuration = 2; // seconds (fastest)
+            const maxDuration = 25; // seconds (slowest)
+            const normalizedSpeed = (speed - 1) / (20 - 1); // 0.0 to 1.0
+            const duration = maxDuration - (normalizedSpeed * (maxDuration - minDuration));
+            
+            marqueeTextEl.style.animationDuration = `${duration}s`;
+
+            // Force animation restart to apply duration cleanly
+            marqueeTextEl.style.animation = 'none';
+            void marqueeTextEl.offsetWidth; // trigger reflow
+            marqueeTextEl.style.animation = `scroll-left ${duration}s linear infinite`;
+        }
+
+        // Push updates to Firebase
+        async function pushUpdates(message, color, speed) {
+            const originalBtnText = updateBtn.textContent;
+            updateBtn.textContent = "Updating...";
+            updateBtn.disabled = true;
+            
+            try {
+                await setDoc(marqueeDocRef, {
+                    message: message,
+                    color: color,
+                    speed: parseInt(speed),
+                    timestamp: new Date().toISOString()
+                });
+            } catch (error) {
+                console.error("Error writing document: ", error);
+            } finally {
+                updateBtn.textContent = originalBtnText;
+                updateBtn.disabled = false;
+            }
+        }
+
+        // Event Listeners for UI
+        updateBtn.addEventListener('click', () => {
+            pushUpdates(msgInput.value, colorInput.value, speedInput.value);
+        });
+
+        colorInput.addEventListener('input', (e) => {
+            colorHex.textContent = e.target.value.toUpperCase();
+        });
+
+        // Fullscreen & Display Mode Logic
+        fullscreenBtn.addEventListener('click', async () => {
+            displayModeEl.classList.remove('hidden');
+            
+            // Request native fullscreen if available
+            try {
+                if (document.documentElement.requestFullscreen) {
+                    await document.documentElement.requestFullscreen();
+                } else if (document.documentElement.webkitRequestFullscreen) { /* Safari */
+                    await document.documentElement.webkitRequestFullscreen();
+                } else if (document.documentElement.msRequestFullscreen) { /* IE11 */
+                    await document.documentElement.msRequestFullscreen();
+                }
+            } catch (e) {
+                console.warn("Fullscreen API not supported or blocked.", e);
+            }
+        });
+
+        // Exit display mode on click
+        displayModeEl.addEventListener('click', async () => {
+            displayModeEl.classList.add('hidden');
+            
+            // Exit native fullscreen if active
+            if (document.fullscreenElement || document.webkitFullscreenElement) {
+                try {
+                    if (document.exitFullscreen) {
+                        await document.exitFullscreen();
+                    } else if (document.webkitExitFullscreen) { /* Safari */
+                        await document.webkitExitFullscreen();
+                    }
+                } catch(e) {
+                    console.warn("Error exiting fullscreen.", e);
+                }
+            }
+        });
+
+        // Start App
+        init();
+
+    </script>
+</body>
+</html>
